@@ -38,6 +38,143 @@ interface Message {
   timestamp: string;
 }
 
+// Clean inline Markdown renderer (bold, code pills, italics, cleans LaTeX artifacts)
+function renderInlineText(text: string): React.ReactNode {
+  // Strip any accidental LaTeX artifacts like \text{...}, \mathbf{...}, \quad
+  const sanitized = text
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\\mathbf\{([^}]+)\}/g, '$1')
+    .replace(/\\quad/g, ' ')
+    .replace(/\\hline/g, '')
+    .replace(/\\\\/g, '');
+
+  const tokens = sanitized.split(/(\*\*.*?\*\*|`.*?`|\*.*?\*)/g);
+
+  return tokens.map((token, i) => {
+    if (token.startsWith('**') && token.endsWith('**')) {
+      return (
+        <strong key={i} className="font-semibold text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (token.startsWith('`') && token.endsWith('`')) {
+      return (
+        <code
+          key={i}
+          className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-800/90 text-purple-300 font-mono text-[11px] border border-slate-700/60"
+        >
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    if (token.startsWith('*') && token.endsWith('*') && !token.startsWith('**')) {
+      return (
+        <em key={i} className="text-slate-300 italic">
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+    return token;
+  });
+}
+
+// Clean Block Markdown Formatter
+const FormattedMessage: React.FC<{ content: string; isUser?: boolean }> = ({ content, isUser }) => {
+  if (isUser) {
+    return <div className="whitespace-pre-wrap">{content}</div>;
+  }
+
+  // Split code blocks and standard text
+  const parts = content.split(/(```[\s\S]*?```)/g);
+
+  return (
+    <div className="space-y-2 text-xs leading-relaxed font-sans">
+      {parts.map((part, pIdx) => {
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const code = part.slice(3, -3).replace(/^[a-z]+\n/, '').trim();
+          return (
+            <div
+              key={pIdx}
+              className="my-2.5 p-3 rounded-xl bg-slate-950 border border-slate-800/90 font-mono text-[11px] text-emerald-300 overflow-x-auto whitespace-pre leading-relaxed shadow-inner"
+            >
+              {code}
+            </div>
+          );
+        }
+
+        const lines = part.split('\n');
+        return (
+          <div key={pIdx} className="space-y-1">
+            {lines.map((line, lIdx) => {
+              const trimmed = line.trim();
+              if (!trimmed) return <div key={lIdx} className="h-1" />;
+
+              if (trimmed === '---' || trimmed === '***') {
+                return <hr key={lIdx} className="border-slate-800 my-2" />;
+              }
+
+              // Headings
+              if (trimmed.startsWith('### ')) {
+                return (
+                  <h4 key={lIdx} className="text-sm font-bold text-white mt-2.5 mb-1 tracking-tight">
+                    {renderInlineText(trimmed.replace(/^###\s+/, ''))}
+                  </h4>
+                );
+              }
+              if (trimmed.startsWith('## ')) {
+                return (
+                  <h3 key={lIdx} className="text-sm font-bold text-indigo-300 mt-3 mb-1 tracking-tight">
+                    {renderInlineText(trimmed.replace(/^##\s+/, ''))}
+                  </h3>
+                );
+              }
+              if (trimmed.startsWith('# ')) {
+                return (
+                  <h2 key={lIdx} className="text-base font-bold text-white mt-3.5 mb-1.5 tracking-tight">
+                    {renderInlineText(trimmed.replace(/^#\s+/, ''))}
+                  </h2>
+                );
+              }
+
+              // Bullet Items
+              if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                return (
+                  <div key={lIdx} className="flex items-start space-x-2 pl-0.5 my-0.5">
+                    <span className="text-purple-400 font-bold shrink-0 mt-0.5 text-xs">•</span>
+                    <span className="text-slate-200">
+                      {renderInlineText(trimmed.replace(/^[•\-*]\s+/, ''))}
+                    </span>
+                  </div>
+                );
+              }
+
+              // Numbered list items
+              const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+              if (numMatch) {
+                return (
+                  <div key={lIdx} className="flex items-start space-x-2 pl-0.5 my-0.5">
+                    <span className="text-purple-400 font-semibold font-mono shrink-0 mt-0.5 text-[11px]">
+                      {numMatch[1]}.
+                    </span>
+                    <span className="text-slate-200">{renderInlineText(numMatch[2])}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <p key={lIdx} className="text-slate-200">
+                  {renderInlineText(line)}
+                </p>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
   isOpen,
   onClose,
@@ -236,7 +373,7 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
                         : 'bg-slate-900 border border-slate-800 text-slate-200'
                     }`}
                   >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                    <FormattedMessage content={msg.content} isUser={msg.role === 'user'} />
                     <span className="block text-[10px] text-slate-400 mt-2 text-right opacity-70">
                       {msg.timestamp}
                     </span>
@@ -341,8 +478,8 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
             </div>
 
             {briefingText ? (
-              <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-xs leading-relaxed text-slate-300 font-sans space-y-3 whitespace-pre-wrap">
-                {briefingText}
+              <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-xs leading-relaxed text-slate-300 font-sans space-y-3">
+                <FormattedMessage content={briefingText} />
               </div>
             ) : (
               <div className="p-12 text-center space-y-3 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800">
