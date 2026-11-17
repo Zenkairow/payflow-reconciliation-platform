@@ -6,6 +6,7 @@ import { TransactionsView } from './components/TransactionsView';
 import { ReconciliationView } from './components/ReconciliationView';
 import { ExceptionsView } from './components/ExceptionsView';
 import { FinancialSummaryView } from './components/FinancialSummaryView';
+import { AdvancedVisualAnalytics } from './components/AdvancedVisualAnalytics';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import { AgenticCoPilotModal } from './components/AgenticCoPilotModal';
@@ -158,6 +159,13 @@ export function App() {
             <FinancialSummaryView
               summary={reconciliationResult.summary}
               onNavigate={setActiveSection}
+            />
+          )}
+
+          {activeSection === 'analytics' && (
+            <AdvancedVisualAnalytics
+              summary={reconciliationResult.summary}
+              exceptions={reconciliationResult.exceptions}
             />
           )}
 

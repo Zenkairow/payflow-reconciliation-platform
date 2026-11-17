@@ -126,5 +126,6 @@ export type ActiveSection =
   | 'reconciliation'
   | 'exceptions'
   | 'financial-summary'
+  | 'analytics'
   | 'reports'
   | 'settings';

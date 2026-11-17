@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   ArrowRightLeft,
   Scale,
+  Activity,
 } from 'lucide-react';
 import { ActiveSection } from '../types';
 
@@ -61,6 +62,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Financial Summary',
       icon: Scale,
       badge: null,
+    },
+    {
+      id: 'analytics' as ActiveSection,
+      label: 'Visual Analytics',
+      icon: Activity,
+      badge: 'PRO',
+      badgeColor: 'bg-purple-900/60 text-purple-300 border border-purple-700/50',
     },
     {
       id: 'reports' as ActiveSection,

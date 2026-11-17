@@ -33,6 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
         return { title: 'Exceptions Management', subtitle: 'Triage, investigate root cause, and resolve ledger discrepancies' };
       case 'financial-summary':
         return { title: 'Financial Summary', subtitle: 'Detailed ledger measures, duplicate exclusions, and accounting disclosures' };
+      case 'analytics':
+        return { title: 'Visual Analytics & Intelligence', subtitle: 'Cumulative cash trajectory, settlement latency, and merchant risk matrix' };
       case 'reports':
         return { title: 'Reports & Export', subtitle: 'Formal month-end accounting bridge and audit schedule' };
       case 'settings':
