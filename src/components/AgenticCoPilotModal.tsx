@@ -13,6 +13,8 @@ import {
   Zap,
   ShieldAlert,
   ArrowRight,
+  Printer,
+  Layers,
 } from 'lucide-react';
 import { ReconciliationSummary, ReconciliationException } from '../types';
 import {
@@ -24,6 +26,11 @@ import {
   generateExecutiveBriefing,
   testApiKeyConnection,
 } from '../services/geminiAgent';
+import {
+  downloadDocx,
+  downloadOdf,
+  exportToPrintPdf,
+} from '../utils/documentExporter';
 
 interface AgenticCoPilotModalProps {
   isOpen: boolean;
@@ -453,17 +460,62 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
 
               <div className="flex items-center space-x-2">
                 {briefingText && (
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(briefingText);
-                      setCopiedBriefing(true);
-                      setTimeout(() => setCopiedBriefing(false), 2000);
-                    }}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-                  >
-                    {copiedBriefing ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedBriefing ? 'Copied!' : 'Copy Markdown'}</span>
-                  </button>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => downloadDocx(
+                        `PayFlow_CFO_Executive_Briefing_${summary.reportingPeriod}`,
+                        briefingText,
+                        {
+                          title: 'PAYFLOW CFO EXECUTIVE AUDIT BRIEFING',
+                          subtitle: 'Autonomous Discrepancy Forensic Synthesis',
+                          reportingPeriod: summary.reportingPeriod,
+                        }
+                      )}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-sm"
+                      title="Download Word Document (.docx)"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Word (.docx)</span>
+                    </button>
+                    <button
+                      onClick={() => downloadOdf(
+                        `PayFlow_CFO_Executive_Briefing_${summary.reportingPeriod}`,
+                        briefingText,
+                        {
+                          title: 'PAYFLOW CFO EXECUTIVE AUDIT BRIEFING',
+                          subtitle: 'Autonomous Discrepancy Forensic Synthesis',
+                          reportingPeriod: summary.reportingPeriod,
+                        }
+                      )}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition-all shadow-sm"
+                      title="Download OpenDocument (.odt)"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>ODF (.odt)</span>
+                    </button>
+                    <button
+                      onClick={() => exportToPrintPdf(briefingText, {
+                        title: 'PAYFLOW CFO EXECUTIVE AUDIT BRIEFING',
+                        subtitle: 'Autonomous Discrepancy Forensic Synthesis',
+                        reportingPeriod: summary.reportingPeriod,
+                      })}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
+                      title="Export PDF / Print"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-indigo-400" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(briefingText);
+                        setCopiedBriefing(true);
+                        setTimeout(() => setCopiedBriefing(false), 2000);
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
+                      title="Copy text"
+                    >
+                      {copiedBriefing ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 )}
 
                 <button

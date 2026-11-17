@@ -28,12 +28,234 @@ import {
   generateRegulatoryComplianceMemo,
   generateAiEnrichedCsvData,
 } from '../services/geminiAgent';
+import {
+  downloadDocx,
+  downloadOdf,
+  exportToPrintPdf,
+  downloadMarkdown,
+  generateBridgeReportText,
+  DocumentMetadata,
+} from '../utils/documentExporter';
 
 interface ReportsViewProps {
   summary: ReconciliationSummary;
   exceptions: ReconciliationException[];
   matchedPairs: MatchedPair[];
 }
+
+// Clean inline Markdown renderer for report previews
+function renderInlineReportText(text: string): React.ReactNode {
+  const sanitized = text
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\\mathbf\{([^}]+)\}/g, '$1')
+    .replace(/\\quad/g, ' ')
+    .replace(/\\hline/g, '')
+    .replace(/\\\\/g, '');
+
+  const tokens = sanitized.split(/(\*\*.*?\*\*|`.*?`|\*.*?\*)/g);
+
+  return tokens.map((token, i) => {
+    if (token.startsWith('**') && token.endsWith('**')) {
+      return (
+        <strong key={i} className="font-semibold text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (token.startsWith('`') && token.endsWith('`')) {
+      return (
+        <code
+          key={i}
+          className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-800 text-purple-300 font-mono text-[11px] border border-slate-700/60"
+        >
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    if (token.startsWith('*') && token.endsWith('*') && !token.startsWith('**')) {
+      return (
+        <em key={i} className="text-slate-300 italic">
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+    return token;
+  });
+}
+
+// Rich Structured Report View Component
+const FormattedReportContent: React.FC<{ content: string }> = ({ content }) => {
+  const parts = content.split(/(```[\s\S]*?```)/g);
+
+  return (
+    <div className="space-y-3 text-xs leading-relaxed font-sans text-slate-200">
+      {parts.map((part, pIdx) => {
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const code = part.slice(3, -3).replace(/^[a-z]+\n/, '').trim();
+          return (
+            <div
+              key={pIdx}
+              className="my-3 p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px] text-emerald-300 overflow-x-auto whitespace-pre leading-relaxed shadow-inner"
+            >
+              {code}
+            </div>
+          );
+        }
+
+        const lines = part.split('\n');
+        return (
+          <div key={pIdx} className="space-y-1.5">
+            {lines.map((line, lIdx) => {
+              const trimmed = line.trim();
+              if (!trimmed) return <div key={lIdx} className="h-1.5" />;
+
+              if (trimmed === '---' || trimmed === '***') {
+                return <hr key={lIdx} className="border-slate-800 my-3" />;
+              }
+
+              if (trimmed.startsWith('# ')) {
+                return (
+                  <h2 key={lIdx} className="text-lg font-bold text-white mt-4 mb-2 tracking-tight border-b border-slate-800 pb-1.5">
+                    {renderInlineReportText(trimmed.replace(/^#\s+/, ''))}
+                  </h2>
+                );
+              }
+              if (trimmed.startsWith('## ')) {
+                return (
+                  <h3 key={lIdx} className="text-sm font-bold text-indigo-300 mt-3.5 mb-1.5 tracking-tight border-b border-slate-800/60 pb-1">
+                    {renderInlineReportText(trimmed.replace(/^##\s+/, ''))}
+                  </h3>
+                );
+              }
+              if (trimmed.startsWith('### ')) {
+                return (
+                  <h4 key={lIdx} className="text-xs font-bold text-white mt-3 mb-1 tracking-tight">
+                    {renderInlineReportText(trimmed.replace(/^###\s+/, ''))}
+                  </h4>
+                );
+              }
+
+              if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                return (
+                  <div key={lIdx} className="flex items-start space-x-2 pl-1 my-0.5">
+                    <span className="text-purple-400 font-bold shrink-0 mt-0.5">•</span>
+                    <span className="text-slate-300">
+                      {renderInlineReportText(trimmed.replace(/^[•\-*]\s+/, ''))}
+                    </span>
+                  </div>
+                );
+              }
+
+              const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+              if (numMatch) {
+                return (
+                  <div key={lIdx} className="flex items-start space-x-2 pl-1 my-0.5">
+                    <span className="text-purple-400 font-semibold font-mono-num shrink-0 mt-0.5 text-[11px]">
+                      {numMatch[1]}.
+                    </span>
+                    <span className="text-slate-300">{renderInlineReportText(numMatch[2])}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <p key={lIdx} className="text-slate-300">
+                  {renderInlineReportText(line)}
+                </p>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// Enterprise Document Export Toolbar (Word .docx, ODF .odt, PDF/Print, Markdown)
+interface ReportExportToolbarProps {
+  title: string;
+  subtitle: string;
+  filenameBase: string;
+  content: string;
+  classification?: string;
+  reportingPeriod: string;
+  onCopy?: () => void;
+  copied?: boolean;
+}
+
+const ReportExportToolbar: React.FC<ReportExportToolbarProps> = ({
+  title,
+  subtitle,
+  filenameBase,
+  content,
+  classification = 'CONFIDENTIAL // FINANCIAL AUDIT',
+  reportingPeriod,
+  onCopy,
+  copied,
+}) => {
+  const meta: DocumentMetadata = {
+    title,
+    subtitle,
+    classification,
+    reportingPeriod,
+    preparedBy: 'PayFlow Autonomous FinOps Agent (Google Gemini)',
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* 1. Official Word Document (.docx) */}
+      <button
+        onClick={() => downloadDocx(filenameBase, content, meta)}
+        title="Download official Microsoft Word document (.docx) with executive letterhead and Big-4 audit styling"
+        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition-all"
+      >
+        <FileText className="w-3.5 h-3.5" />
+        <span>Word (.docx)</span>
+      </button>
+
+      {/* 2. OpenDocument Text (.odt) */}
+      <button
+        onClick={() => downloadOdf(filenameBase, content, meta)}
+        title="Download OpenDocument Text (.odt) conforming to ISO/IEC 26300 standard (LibreOffice / Google Docs)"
+        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shadow-sm transition-all"
+      >
+        <Layers className="w-3.5 h-3.5" />
+        <span>OpenDocument (.odt)</span>
+      </button>
+
+      {/* 3. Official Print / PDF */}
+      <button
+        onClick={() => exportToPrintPdf(content, meta)}
+        title="Export to PDF or print official report with corporate letterhead"
+        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
+      >
+        <Printer className="w-3.5 h-3.5 text-indigo-400" />
+        <span>PDF / Print</span>
+      </button>
+
+      {/* 4. Technical Markdown (.md) */}
+      <button
+        onClick={() => downloadMarkdown(filenameBase, content)}
+        title="Download technical markdown (.md) for code repositories and ticket systems"
+        className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-all"
+      >
+        <Download className="w-3 h-3" />
+        <span>Markdown (.md)</span>
+      </button>
+
+      {/* 5. Copy text */}
+      {onCopy && (
+        <button
+          onClick={onCopy}
+          title="Copy text to clipboard"
+          className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+      )}
+    </div>
+  );
+};
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
   summary,
@@ -55,21 +277,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       minimumFractionDigits: 2,
       maximumFractionDigits: 3,
     }).format(val);
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const downloadTextFile = (filename: string, content: string) => {
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   // Generate Reports via Gemini
@@ -141,6 +348,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     downloadCsv(`PayFlow_Reconciliation_Summary_${summary.reportingPeriod}.csv`, summaryRows);
   };
 
+  const bridgeReportContent = generateBridgeReportText(summary, exceptions);
+
   return (
     <div className="space-y-6">
       {/* Top Action Bar */}
@@ -154,7 +363,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </span>
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Formal audit dossiers, merchant dispute packs, and AI-enriched downloadable schedules
+            Formal audit dossiers, merchant dispute packs, and multi-format downloadable reports (DOCX, ODF, PDF, CSV)
           </p>
         </div>
 
@@ -164,21 +373,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md shadow-purple-600/20 transition-all"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Download AI-Enriched CSV</span>
+            <span>AI-Enriched CSV</span>
           </button>
           <button
             onClick={handleDownloadSummaryCsv}
             className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span>Download Audit CSV</span>
+            <span>Summary CSV</span>
           </button>
           <button
-            onClick={handlePrint}
+            onClick={() => exportToPrintPdf(bridgeReportContent, {
+              title: 'PAYFLOW MONTH-END RECONCILIATION DOSSIER',
+              subtitle: 'Statutory Financial Operations & Audit Certification',
+              reportingPeriod: summary.reportingPeriod,
+            })}
             className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition-all"
           >
             <Printer className="w-3.5 h-3.5 text-slate-400" />
-            <span>Print Report</span>
+            <span>Print Official Dossier</span>
           </button>
         </div>
       </div>
@@ -253,25 +466,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
             <div className="flex items-center space-x-2">
               {dossierContent ? (
-                <>
-                  <button
-                    onClick={() => downloadTextFile(`PayFlow_Audit_Dossier_${summary.reportingPeriod}.md`, dossierContent)}
-                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Markdown (.md)</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(dossierContent);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                    className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white"
-                  >
-                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                </>
+                <ReportExportToolbar
+                  title="PAYFLOW COMPREHENSIVE MONTH-END FINANCIAL AUDIT DOSSIER"
+                  subtitle="Executive Forensic Discrepancy Breakdown & Audit Opinion"
+                  filenameBase={`PayFlow_Audit_Dossier_${summary.reportingPeriod}`}
+                  content={dossierContent}
+                  classification="CONFIDENTIAL // EXTERNAL AUDIT & BOARD REVIEW"
+                  reportingPeriod={summary.reportingPeriod}
+                  onCopy={() => {
+                    navigator.clipboard.writeText(dossierContent);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  copied={copied}
+                />
               ) : (
                 <button
                   onClick={handleGenerateDossier}
@@ -286,8 +494,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
 
           {dossierContent ? (
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-200 leading-relaxed font-sans whitespace-pre-wrap">
-              {dossierContent}
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800">
+              <FormattedReportContent content={dossierContent} />
             </div>
           ) : (
             <div className="p-12 text-center space-y-3 bg-slate-900/30 rounded-xl border border-dashed border-slate-800">
@@ -328,13 +536,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
             <div className="flex items-center space-x-2">
               {merchantContent ? (
-                <button
-                  onClick={() => downloadTextFile(`PayFlow_Merchant_Dispute_Pack_${summary.reportingPeriod}.md`, merchantContent)}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Dispute Letters (.md)</span>
-                </button>
+                <ReportExportToolbar
+                  title="PAYFLOW MERCHANT AUDIT & DISPUTE REMEDIATION DOSSIER"
+                  subtitle="Formal Operational Settlement Notices (MER007, MER008, MER009)"
+                  filenameBase={`PayFlow_Merchant_Dispute_Pack_${summary.reportingPeriod}`}
+                  content={merchantContent}
+                  classification="STRICTLY CONFIDENTIAL // MERCHANT OPERATIONS"
+                  reportingPeriod={summary.reportingPeriod}
+                  onCopy={() => {
+                    navigator.clipboard.writeText(merchantContent);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  copied={copied}
+                />
               ) : (
                 <button
                   onClick={handleGenerateMerchantPack}
@@ -349,8 +564,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
 
           {merchantContent ? (
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-200 leading-relaxed font-sans whitespace-pre-wrap">
-              {merchantContent}
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800">
+              <FormattedReportContent content={merchantContent} />
             </div>
           ) : (
             <div className="p-12 text-center space-y-3 bg-slate-900/30 rounded-xl border border-dashed border-slate-800">
@@ -391,13 +606,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
             <div className="flex items-center space-x-2">
               {soxContent ? (
-                <button
-                  onClick={() => downloadTextFile(`PayFlow_SOX_Certification_${summary.reportingPeriod}.md`, soxContent)}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Certification (.md)</span>
-                </button>
+                <ReportExportToolbar
+                  title="SOX 404 FINANCIAL RECONCILIATION CONTROL CERTIFICATION"
+                  subtitle="Sub-Ledger to General Ledger Internal Control Testing"
+                  filenameBase={`PayFlow_SOX_404_Compliance_Memo_${summary.reportingPeriod}`}
+                  content={soxContent}
+                  classification="REGULATORY COMPLIANCE // SARBANES-OXLEY ACT SECTION 404"
+                  reportingPeriod={summary.reportingPeriod}
+                  onCopy={() => {
+                    navigator.clipboard.writeText(soxContent);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  copied={copied}
+                />
               ) : (
                 <button
                   onClick={handleGenerateSoxMemo}
@@ -412,8 +634,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
 
           {soxContent ? (
-            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-200 leading-relaxed font-sans whitespace-pre-wrap">
-              {soxContent}
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800">
+              <FormattedReportContent content={soxContent} />
             </div>
           ) : (
             <div className="p-12 text-center space-y-3 bg-slate-900/30 rounded-xl border border-dashed border-slate-800">
@@ -462,6 +684,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 100% Mathematically Explained
               </div>
             </div>
+          </div>
+
+          {/* Export Action Bar for Accounting Bridge */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-900/60 rounded-xl border border-slate-800">
+            <div className="flex items-center space-x-2 text-xs text-slate-300">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Official Statutory Bridge Document (Zero Residual: ₹0.000)</span>
+            </div>
+            <ReportExportToolbar
+              title="PAYFLOW MONTH-END BALANCE RECONCILIATION BRIDGE"
+              subtitle="Core Payment Platform to Settled Bank Statement Balance Bridge"
+              filenameBase={`PayFlow_Accounting_Balance_Bridge_${summary.reportingPeriod}`}
+              content={bridgeReportContent}
+              classification="STATUTORY FINANCIAL REPORT"
+              reportingPeriod={summary.reportingPeriod}
+            />
           </div>
 
           {/* Accounting Table */}
