@@ -69,12 +69,13 @@ Every required assessment scenario maps directly to underlying physical records:
    - **Financial Health Score Gauge**: 98.36% Reconciliation Integrity Index.
    - **Micro-Paise Precision Deviation Matrix**: 0.4 paise deviation visual for MER006.
    - **Merchant Portfolio Settlement Matrix**: Breakdown of all 9 merchants.
-7. **AI-Powered Reports & Export Center (Google Gemini Integration)**:
-   - **Month-End Financial Audit Dossier**: Full formal audit report downloadable as Markdown (`.md`) or printable.
-   - **Merchant Audit & Dispute Pack**: Tailored dispute letters for MER007, MER008, and MER009 downloadable as `.md`.
-   - **SOX 404 Regulatory Compliance Memo**: Internal controls evaluation under Sarbanes-Oxley standards.
+7. **AI-Powered Reports & Multi-Format Export Suite (Google Gemini Integration)**:
+   - **Month-End Financial Audit Dossier**: Full formal audit report downloadable in **Microsoft Word (`.docx`)**, **OpenDocument (`.odt`)**, **Printable PDF (`.pdf`)**, or Markdown (`.md`).
+   - **Merchant Audit & Dispute Pack**: Tailored formal dispute letters for MER007, MER008, and MER009 in `.docx`, `.odt`, `.pdf`, and `.md`.
+   - **SOX 404 Regulatory Compliance Memo**: Internal controls evaluation under Sarbanes-Oxley standards in `.docx`, `.odt`, `.pdf`, and `.md`.
+   - **Accounting Balance Bridge Document**: Formal statutory audit balance bridge with mathematical zero-residual proof in `.docx`, `.odt`, `.pdf`, `.md`, and `.csv`.
    - **AI-Enriched Exceptions CSV**: Every exception row includes AI Forensic Diagnosis and Recommended Journal Adjustments.
-   - **PayFlow AI Co-Pilot**: Interactive conversational financial analyst modal accessible from the top bar.
+   - **PayFlow AI Co-Pilot**: Interactive conversational financial analyst modal with rich Markdown formatting, instant greeting handling, and dynamic model discovery.
 
 ---
 
@@ -130,7 +131,7 @@ npm run build
 3. **Minute 3: Visual Analytics & AI Reports**:
    - Navigate to **Visual Analytics**: Explore the Cumulative Cash Flow Area Chart and Settlement Latency Histogram.
    - Navigate to **Reports & Export**:
-     - Click **"Synthesize Audit Dossier with Gemini"** $\rightarrow$ click **Download Markdown (.md)**.
+     - Click **"Synthesize Audit Dossier with Gemini"** $\rightarrow$ click **Word (.docx)**, **OpenDocument (.odt)**, or **PDF / Print** to download the official audit dossier.
      - Click **"Download AI-Enriched CSV"** to inspect line-by-line Gemini forensic commentary and journal entries.
 
 ---
