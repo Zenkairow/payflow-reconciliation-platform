@@ -16,20 +16,25 @@ import {
   ArrowDownRight,
   Sparkles,
 } from 'lucide-react';
-import { ReconciliationSummary, ActiveSection } from '../types';
+import { ReconciliationSummary, ActiveSection, ReconciliationException } from '../types';
+import { ReconciliationCharts } from './ReconciliationCharts';
 
 interface DashboardViewProps {
   summary: ReconciliationSummary;
+  exceptions: ReconciliationException[];
   onNavigate: (section: ActiveSection) => void;
   onRunReconciliation: () => void;
   isRunning: boolean;
+  onOpenAiCoPilot: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   summary,
+  exceptions,
   onNavigate,
   onRunReconciliation,
   isRunning,
+  onOpenAiCoPilot,
 }) => {
   const formatINR = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -89,6 +94,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={onOpenAiCoPilot}
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md shadow-purple-600/20 transition-all"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>AI Co-Pilot</span>
+          </button>
           <button
             onClick={() => onNavigate('exceptions')}
             className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all"
@@ -339,6 +351,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Row 2.5: Graphical Financial Visualizations & Timeline */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Graphical Financial Analytics & Waterfall Bridge
+          </h3>
+          <span className="text-[11px] text-slate-400 font-medium">
+            Visual forensic tracking of transaction volumes and ledger variance bridge
+          </span>
+        </div>
+        <ReconciliationCharts summary={summary} exceptions={exceptions} />
       </div>
 
       {/* Row 3: Exception Categories Breakdown Grid */}

@@ -15,9 +15,11 @@ import {
   MessageSquare,
   ShieldAlert,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 import { ReconciliationException, ExceptionIdentifier, ExceptionStatus } from '../types';
 import { downloadCsv } from '../utils/csvParser';
+import { investigateExceptionWithAgent } from '../services/geminiAgent';
 
 interface ExceptionsViewProps {
   exceptions: ReconciliationException[];
@@ -35,6 +37,20 @@ export const ExceptionsView: React.FC<ExceptionsViewProps> = ({
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [tempNote, setTempNote] = useState<string>('');
+  const [aiInvestigations, setAiInvestigations] = useState<Record<string, string>>({});
+  const [investigatingId, setInvestigatingId] = useState<string | null>(null);
+
+  const handleInvestigateWithAi = async (exc: ReconciliationException) => {
+    setInvestigatingId(exc.id);
+    try {
+      const result = await investigateExceptionWithAgent(exc, exc.platformRecord, exc.bankRecord);
+      setAiInvestigations(prev => ({ ...prev, [exc.id]: result }));
+    } catch (err: any) {
+      setAiInvestigations(prev => ({ ...prev, [exc.id]: `Investigation error: ${err.message}` }));
+    } finally {
+      setInvestigatingId(null);
+    }
+  };
 
   const technicalCodes: { code: ExceptionIdentifier | 'ALL'; label: string; icon: any }[] = [
     { code: 'ALL', label: 'All Exceptions', icon: AlertTriangle },
@@ -366,6 +382,34 @@ export const ExceptionsView: React.FC<ExceptionsViewProps> = ({
                           </span>
                         </div>
                       </div>
+                    </div>
+
+                    {/* Agentic Gemini AI Forensic Investigation Box */}
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-purple-950/30 via-slate-950 to-indigo-950/30 border border-purple-900/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                          <span className="text-xs font-bold text-white">Gemini Agentic Forensic Investigation</span>
+                          <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold">
+                            AI Agent
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => handleInvestigateWithAi(exc)}
+                          disabled={investigatingId === exc.id}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                        >
+                          <Sparkles className={`w-3.5 h-3.5 ${investigatingId === exc.id ? 'animate-spin' : ''}`} />
+                          <span>{investigatingId === exc.id ? 'Agent Investigating...' : aiInvestigations[exc.id] ? 'Re-run Investigation' : 'Run Forensic AI Deep Dive'}</span>
+                        </button>
+                      </div>
+
+                      {aiInvestigations[exc.id] && (
+                        <div className="mt-3 p-3.5 rounded-lg bg-slate-950 border border-purple-900/40 text-slate-200 text-xs whitespace-pre-wrap leading-relaxed animate-in fade-in">
+                          {aiInvestigations[exc.id]}
+                        </div>
+                      )}
                     </div>
 
                     {/* Analyst Notes Section */}

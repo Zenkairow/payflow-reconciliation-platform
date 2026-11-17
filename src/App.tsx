@@ -8,6 +8,7 @@ import { ExceptionsView } from './components/ExceptionsView';
 import { FinancialSummaryView } from './components/FinancialSummaryView';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
+import { AgenticCoPilotModal } from './components/AgenticCoPilotModal';
 import {
   ActiveSection,
   PlatformTransaction,
@@ -35,6 +36,7 @@ export function App() {
   const [reportingPeriod, setReportingPeriod] = useState<string>('ALL');
   const [roundingTolerance, setRoundingTolerance] = useState<number>(0.05);
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
 
   // Reconciliation Results State
   const [reconciliationResult, setReconciliationResult] = useState<ReconciliationRunResult>(() => {
@@ -108,15 +110,18 @@ export function App() {
           onRunReconciliation={executeReconciliation}
           isRunning={isRunning}
           summary={reconciliationResult.summary}
+          onOpenAiCoPilot={() => setIsAiModalOpen(true)}
         />
 
         <main className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto overflow-y-auto">
           {activeSection === 'dashboard' && (
             <DashboardView
               summary={reconciliationResult.summary}
+              exceptions={reconciliationResult.exceptions}
               onNavigate={setActiveSection}
               onRunReconciliation={executeReconciliation}
               isRunning={isRunning}
+              onOpenAiCoPilot={() => setIsAiModalOpen(true)}
             />
           )}
 
@@ -177,6 +182,14 @@ export function App() {
           )}
         </main>
       </div>
+
+      {/* AI Financial Co-Pilot Modal */}
+      <AgenticCoPilotModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        summary={reconciliationResult.summary}
+        exceptions={reconciliationResult.exceptions}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Play, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar, Play, RefreshCw, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import { ActiveSection, ReconciliationSummary } from '../types';
 
 interface HeaderProps {
@@ -9,6 +9,7 @@ interface HeaderProps {
   onRunReconciliation: () => void;
   isRunning: boolean;
   summary: ReconciliationSummary;
+  onOpenAiCoPilot: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,6 +19,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRunReconciliation,
   isRunning,
   summary,
+  onOpenAiCoPilot,
 }) => {
   const getSectionTitle = () => {
     switch (activeSection) {
@@ -88,6 +90,15 @@ export const Header: React.FC<HeaderProps> = ({
               </>
             )}
           </div>
+
+          {/* PayFlow AI Co-Pilot Trigger Button */}
+          <button
+            onClick={onOpenAiCoPilot}
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md shadow-purple-600/20 active:scale-95 transition-all"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-200" />
+            <span>AI Co-Pilot</span>
+          </button>
 
           {/* Run Reconciliation Button */}
           <button
