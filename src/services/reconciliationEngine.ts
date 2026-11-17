@@ -19,6 +19,19 @@ export interface ReconciliationRunResult {
   exceptions: ReconciliationException[];
 }
 
+/**
+ * Decimal-Safe Integer Arithmetic Helpers
+ * Stores currency units in milli-units (1 INR = 1000 milli-units) to prevent
+ * IEEE-754 binary floating-point representation drift.
+ */
+export const Money = {
+  toMilli: (val: number): number => Math.round(Number(val.toFixed(4)) * 1000),
+  fromMilli: (milli: number): number => milli / 1000,
+  add: (a: number, b: number): number => (Money.toMilli(a) + Money.toMilli(b)) / 1000,
+  sub: (a: number, b: number): number => (Money.toMilli(a) - Money.toMilli(b)) / 1000,
+  diff: (a: number, b: number): number => Math.abs(Money.toMilli(a) - Money.toMilli(b)) / 1000,
+};
+
 export function runReconciliation(
   platformRecords: PlatformTransaction[],
   bankRecords: BankTransaction[],
@@ -35,29 +48,40 @@ export function runReconciliation(
     filteredBank = bankRecords.filter(r => r.Settlement_Date.startsWith(reportingPeriod));
   }
 
-  // 2. Compute Raw Source Totals
+  // 2. Compute Raw Source Totals using Decimal-Safe Math
   const totalPlatformRecords = filteredPlatform.length;
   const totalBankRecords = filteredBank.length;
 
-  const grossPlatformPayment = filteredPlatform
-    .filter(r => r.Transaction_Type === 'PAYMENT')
-    .reduce((sum, r) => sum + r.Amount_INR, 0);
+  let grossPlatformPaymentMilli = 0;
+  let platformRefundMilli = 0;
+  filteredPlatform.forEach(r => {
+    const milli = Money.toMilli(r.Amount_INR);
+    if (r.Transaction_Type === 'REFUND') {
+      platformRefundMilli += milli;
+    } else {
+      grossPlatformPaymentMilli += milli;
+    }
+  });
 
-  const platformRefund = filteredPlatform
-    .filter(r => r.Transaction_Type === 'REFUND')
-    .reduce((sum, r) => sum + r.Amount_INR, 0);
+  let grossBankPaymentMilli = 0;
+  let bankRefundMilli = 0;
+  filteredBank.forEach(r => {
+    const milli = Money.toMilli(r.Amount_INR);
+    if (r.Transaction_Type === 'REFUND') {
+      bankRefundMilli += milli;
+    } else {
+      grossBankPaymentMilli += milli;
+    }
+  });
 
-  const grossBankPayment = filteredBank
-    .filter(r => r.Transaction_Type === 'PAYMENT')
-    .reduce((sum, r) => sum + r.Amount_INR, 0);
+  const grossPlatformPayment = Money.fromMilli(grossPlatformPaymentMilli);
+  const platformRefund = Money.fromMilli(platformRefundMilli);
+  const netPlatform = Money.fromMilli(grossPlatformPaymentMilli - platformRefundMilli);
 
-  const bankRefund = filteredBank
-    .filter(r => r.Transaction_Type === 'REFUND')
-    .reduce((sum, r) => sum + r.Amount_INR, 0);
-
-  const netPlatform = grossPlatformPayment - platformRefund;
-  const netBank = grossBankPayment - bankRefund;
-  const netDifference = netPlatform - netBank;
+  const grossBankPayment = Money.fromMilli(grossBankPaymentMilli);
+  const bankRefund = Money.fromMilli(bankRefundMilli);
+  const netBank = Money.fromMilli(grossBankPaymentMilli - bankRefundMilli);
+  const netDifference = Money.sub(netPlatform, netBank);
 
   // Unique counts
   const uniquePlatformTxnIds = new Set(filteredPlatform.map(r => r.Transaction_ID));
@@ -65,12 +89,11 @@ export function runReconciliation(
   const uniquePlatformCount = uniquePlatformTxnIds.size;
   const uniqueBankCount = uniqueBankTxnIds.size;
 
-  // 3. Setup Reconciliation State
+  // 3. State initialization
   const matchedPairs: MatchedPair[] = [];
   const exceptions: ReconciliationException[] = [];
 
-  // Index datasets
-  // Group platform by Transaction_ID
+  // Index datasets preserving physical row identity
   const platformGroups = new Map<string, PlatformTransaction[]>();
   filteredPlatform.forEach(r => {
     const list = platformGroups.get(r.Transaction_ID) || [];
@@ -78,7 +101,6 @@ export function runReconciliation(
     platformGroups.set(r.Transaction_ID, list);
   });
 
-  // Group bank by Transaction_ID (or Bank_Reference_ID if Transaction_ID is missing)
   const bankGroups = new Map<string, BankTransaction[]>();
   filteredBank.forEach(r => {
     const key = r.Transaction_ID || r.Bank_Reference_ID;
@@ -87,25 +109,23 @@ export function runReconciliation(
     bankGroups.set(key, list);
   });
 
-  // Also keep an index of ALL platform payments across all time (for refund validation)
+  // Global index of platform payments for refund validation (Blueprint 5.8)
   const allPlatformPayments = new Set(
     platformRecords.filter(r => r.Transaction_Type === 'PAYMENT').map(r => r.Transaction_ID)
   );
 
-  // Track matched bank record IDs
   const matchedBankRecordIds = new Set<string>();
 
-  // 4. Pass 1: Duplicate Detection in Platform
+  // 4. Pass 1: Duplicate Detection in Platform (Blueprint 5.4 Precedence 2)
   platformGroups.forEach((records, txnId) => {
     if (records.length > 1) {
-      // All occurrences after the first are duplicates
       for (let i = 1; i < records.length; i++) {
         const dup = records[i];
         exceptions.push({
           id: `EXC-DUP-PLT-${txnId}-${i}`,
           code: 'DUPLICATE_IN_PLATFORM',
           title: `Duplicate Platform Record: ${txnId}`,
-          description: `Transaction ID ${txnId} was submitted ${records.length} times in platform data. Record #${i + 1} for ₹${dup.Amount_INR.toFixed(2)} is an unbanked duplicate capture.`,
+          description: `Transaction ID ${txnId} was submitted ${records.length} times in platform data. Record #${i + 1} (${dup.source_record_id}) for ₹${dup.Amount_INR.toFixed(2)} is an unbanked duplicate capture.`,
           severity: 'HIGH',
           status: 'OPEN',
           transactionId: txnId,
@@ -131,7 +151,7 @@ export function runReconciliation(
           id: `EXC-DUP-BNK-${key}-${i}`,
           code: 'DUPLICATE_IN_BANK',
           title: `Duplicate Bank Settlement: ${key}`,
-          description: `Bank Reference/Txn ${key} has ${records.length} settlement entries. Entry #${i + 1} for ₹${dup.Amount_INR.toFixed(2)} is duplicate.`,
+          description: `Bank Reference/Txn ${key} has ${records.length} settlement entries. Entry #${i + 1} (${dup.bank_record_id}) for ₹${dup.Amount_INR.toFixed(2)} is duplicate.`,
           severity: 'HIGH',
           status: 'OPEN',
           transactionId: dup.Transaction_ID,
@@ -149,22 +169,21 @@ export function runReconciliation(
     }
   });
 
-  // 5. Pass 3: Primary Matching (One-to-One between Platform & Bank)
+  // 5. Pass 3: Primary Candidate Matching (Blueprint 5.4 Precedence 4)
   platformGroups.forEach((pRecords, txnId) => {
-    const primaryP = pRecords[0]; // primary platform entry
+    const primaryP = pRecords[0];
     const bRecords = bankGroups.get(txnId);
 
     if (!bRecords || bRecords.length === 0) {
-      // Check if it exists in ALL bank records (to detect Cross-Period Timing Difference)
+      // Check if it exists in ALL bank records (to detect Cross-Period Timing Difference S1)
       const allTimeBankRecord = bankRecords.find(b => b.Transaction_ID === txnId);
 
       if (allTimeBankRecord) {
-        // Settled in a different period!
         exceptions.push({
           id: `EXC-TIME-${txnId}`,
           code: 'TIMING_DIFFERENCE',
           title: `Timing Difference / Cross-Period Settlement: ${txnId}`,
-          description: `Platform transaction dated ${primaryP.Transaction_Date} was settled by the bank on ${allTimeBankRecord.Settlement_Date} (${allTimeBankRecord.Settlement_Date.slice(0, 7)}).`,
+          description: `Platform transaction dated ${primaryP.Transaction_Date} was settled by bank on ${allTimeBankRecord.Settlement_Date} (${allTimeBankRecord.Settlement_Date.slice(0, 7)}).`,
           severity: 'MEDIUM',
           status: 'OPEN',
           transactionId: txnId,
@@ -180,7 +199,7 @@ export function runReconciliation(
           reportingPeriod,
         });
       } else {
-        // Truly missing from bank!
+        // Truly missing bank settlement (S7)
         exceptions.push({
           id: `EXC-MISS-${txnId}`,
           code: 'MISSING_SETTLEMENT',
@@ -205,17 +224,16 @@ export function runReconciliation(
     const primaryB = bRecords[0];
     matchedBankRecordIds.add(primaryB.id);
 
-    // Check if dates span different months even when filtered as ALL
     const isTimingDifference =
       primaryP.Transaction_Date.slice(0, 7) !== primaryB.Settlement_Date.slice(0, 7);
 
-    // Check amount variance
+    // Decimal-safe amount difference
     const pAmt = primaryP.Amount_INR;
     const bAmt = primaryB.Amount_INR;
-    const diff = Number((pAmt - bAmt).toFixed(4));
+    const diff = Money.sub(pAmt, bAmt);
     const absDiff = Math.abs(diff);
 
-    // Check attribute matches
+    // Check attributes (S9)
     const merchantMismatch = primaryB.Merchant_ID && primaryP.Merchant_ID !== primaryB.Merchant_ID;
     const currencyMismatch = primaryP.Currency !== primaryB.Currency;
     const typeMismatch = primaryP.Transaction_Type !== primaryB.Transaction_Type;
@@ -243,7 +261,7 @@ export function runReconciliation(
     }
 
     if (absDiff > 0 && absDiff <= roundingTolerance) {
-      // Sub-paise precision / Aggregate Rounding Difference
+      // S2: Sub-paise precision / Aggregate Rounding Difference
       matchedPairs.push({
         id: `MATCH-${txnId}`,
         transactionId: txnId,
@@ -277,7 +295,7 @@ export function runReconciliation(
         reportingPeriod,
       });
     } else if (absDiff > roundingTolerance) {
-      // Genuine Amount Mismatch
+      // S8: Genuine Amount Mismatch
       exceptions.push({
         id: `EXC-AMT-${txnId}`,
         code: 'AMOUNT_MISMATCH',
@@ -299,7 +317,7 @@ export function runReconciliation(
         reportingPeriod,
       });
     } else {
-      // Exact match on amount!
+      // S6: Exact match on amount!
       matchedPairs.push({
         id: `MATCH-${txnId}`,
         transactionId: txnId,
@@ -337,7 +355,7 @@ export function runReconciliation(
     }
   });
 
-  // 6. Pass 4: Refund Validation (Check for Unmatched/Orphan Refunds)
+  // 6. Pass 4: Refund Validation (Blueprint 5.8, S4)
   filteredPlatform
     .filter(r => r.Transaction_Type === 'REFUND')
     .forEach(ref => {
@@ -363,10 +381,9 @@ export function runReconciliation(
       }
     });
 
-  // 7. Pass 5: Unexpected Bank Entries (Bank records not matched to any platform transaction)
+  // 7. Pass 5: Unexpected Bank Entries (Blueprint 5.4, S5)
   filteredBank.forEach(b => {
     if (!matchedBankRecordIds.has(b.id)) {
-      // Check if it's already accounted for as bank duplicate
       const isDupe = exceptions.some(e => e.code === 'DUPLICATE_IN_BANK' && e.bankRecord?.id === b.id);
       if (!isDupe) {
         exceptions.push({
@@ -402,13 +419,13 @@ export function runReconciliation(
   const amountMismatchCount = exceptions.filter(e => e.code === 'AMOUNT_MISMATCH').length;
   const attributeMismatchCount = exceptions.filter(e => e.code === 'ATTRIBUTE_MISMATCH').length;
 
-  const aggregateRoundingDifference = exceptions
+  let aggregateRoundingMilli = 0;
+  exceptions
     .filter(e => e.code === 'ROUNDING_DIFFERENCE')
-    .reduce((sum, e) => sum + e.varianceAmount, 0);
-
-  // Reconciled Bank Balance Proof
-  // Platform Net - Platform Duplicates + Unexpected Bank Entries - Aggregate Rounding
-  const reconciledBankBalance = netBank;
+    .forEach(e => {
+      aggregateRoundingMilli += Money.toMilli(e.varianceAmount);
+    });
+  const aggregateRoundingDifference = Money.fromMilli(aggregateRoundingMilli);
 
   const summary: ReconciliationSummary = {
     reportingPeriod,
@@ -423,7 +440,7 @@ export function runReconciliation(
     duplicatePlatformCount,
     duplicateBankCount,
     timingDifferenceCount,
-    aggregateRoundingDifference: Number(aggregateRoundingDifference.toFixed(4)),
+    aggregateRoundingDifference,
     roundingDifferenceCount,
     unmatchedRefundCount,
     missingSettlementCount,
@@ -437,7 +454,7 @@ export function runReconciliation(
     netPlatform,
     netBank,
     netDifference,
-    reconciledBankBalance,
+    reconciledBankBalance: netBank,
   };
 
   return {

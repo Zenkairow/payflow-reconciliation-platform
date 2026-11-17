@@ -5,6 +5,7 @@ import { DashboardView } from './components/DashboardView';
 import { TransactionsView } from './components/TransactionsView';
 import { ReconciliationView } from './components/ReconciliationView';
 import { ExceptionsView } from './components/ExceptionsView';
+import { FinancialSummaryView } from './components/FinancialSummaryView';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import {
@@ -145,6 +146,13 @@ export function App() {
             <ExceptionsView
               exceptions={reconciliationResult.exceptions}
               onUpdateExceptionStatus={handleUpdateExceptionStatus}
+            />
+          )}
+
+          {activeSection === 'financial-summary' && (
+            <FinancialSummaryView
+              summary={reconciliationResult.summary}
+              onNavigate={setActiveSection}
             />
           )}
 

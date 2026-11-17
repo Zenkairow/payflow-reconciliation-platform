@@ -29,8 +29,10 @@ export const Header: React.FC<HeaderProps> = ({
         return { title: 'Reconciliation Engine', subtitle: 'Multi-pass rule-based automated comparison engine' };
       case 'exceptions':
         return { title: 'Exceptions Management', subtitle: 'Triage, investigate root cause, and resolve ledger discrepancies' };
+      case 'financial-summary':
+        return { title: 'Financial Summary', subtitle: 'Detailed ledger measures, duplicate exclusions, and accounting disclosures' };
       case 'reports':
-        return { title: 'Reconciliation Reports', subtitle: 'Formal month-end accounting bridge and audit schedule' };
+        return { title: 'Reports & Export', subtitle: 'Formal month-end accounting bridge and audit schedule' };
       case 'settings':
         return { title: 'Data Management & Settings', subtitle: 'Upload custom CSV datasets and configure matching parameters' };
       default:

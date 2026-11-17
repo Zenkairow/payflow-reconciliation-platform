@@ -6,6 +6,7 @@ export type BankStatus = 'SETTLED' | 'PENDING' | 'REVERSED' | 'FAILED';
 
 export interface PlatformTransaction {
   id: string; // Internal row ID
+  source_record_id: string; // Unique identifier for physical source row (Blueprint 4.2)
   Transaction_ID: string;
   Transaction_Date: string; // YYYY-MM-DD
   Transaction_Type: TransactionType;
@@ -20,6 +21,7 @@ export interface PlatformTransaction {
 
 export interface BankTransaction {
   id: string; // Internal row ID
+  bank_record_id: string; // Unique identifier for bank source row (Blueprint 4.3)
   Bank_Reference_ID: string;
   Transaction_ID?: string;
   Settlement_Date: string; // YYYY-MM-DD
@@ -123,5 +125,6 @@ export type ActiveSection =
   | 'transactions'
   | 'reconciliation'
   | 'exceptions'
+  | 'financial-summary'
   | 'reports'
   | 'settings';

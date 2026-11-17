@@ -42,6 +42,7 @@ export function parsePlatformCsv(csvString: string): ParseResult<PlatformTransac
 
     rows.push({
       id: `plt-${index + 1}-${txnId}`,
+      source_record_id: `PLT-ROW-${String(index + 1).padStart(3, '0')}`,
       Transaction_ID: txnId,
       Transaction_Date: date,
       Transaction_Type: type === 'REFUND' ? 'REFUND' : 'PAYMENT',
@@ -105,6 +106,7 @@ export function parseBankCsv(csvString: string): ParseResult<BankTransaction> {
 
     rows.push({
       id: `bnk-${index + 1}-${bankRef || txnId}`,
+      bank_record_id: `BNK-ROW-${String(index + 1).padStart(3, '0')}`,
       Bank_Reference_ID: bankRef || `BNK-AUTO-${index + 1}`,
       Transaction_ID: txnId || undefined,
       Settlement_Date: date,
