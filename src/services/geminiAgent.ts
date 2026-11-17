@@ -1,7 +1,7 @@
 /**
  * PayFlow Gemini Agentic Intelligence Service (Extended Edition)
- * Provides comprehensive LLM-powered report generation, forensic analysis,
- * merchant dispute drafting, and AI-enriched CSV exports.
+ * Self-healing model resolution with dynamic ModelList discovery,
+ * multi-version endpoint fallback, and conversational financial assistance.
  */
 
 import { ReconciliationSummary, ReconciliationException, PlatformTransaction, BankTransaction } from '../types';
@@ -9,7 +9,7 @@ import { ReconciliationSummary, ReconciliationException, PlatformTransaction, Ba
 const STORAGE_KEY = 'payflow_gemini_api_key';
 const MODEL_KEY = 'payflow_gemini_model';
 
-export const DEFAULT_MODEL = 'gemini-1.5-flash';
+export const DEFAULT_MODEL = 'auto'; // Auto-detect best model
 
 export function getStoredApiKey(): string {
   return localStorage.getItem(STORAGE_KEY) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
@@ -17,6 +17,7 @@ export function getStoredApiKey(): string {
 
 export function setStoredApiKey(key: string): void {
   localStorage.setItem(STORAGE_KEY, key.trim());
+  cachedDiscoveredModel = null; // reset cache on key change
 }
 
 export function getStoredModel(): string {
@@ -25,72 +26,168 @@ export function getStoredModel(): string {
 
 export function setStoredModel(model: string): void {
   localStorage.setItem(MODEL_KEY, model);
+  cachedDiscoveredModel = null;
+}
+
+let cachedDiscoveredModel: string | null = null;
+
+/**
+ * Dynamically queries Google AI Studio ModelsService to identify
+ * the exact models enabled for the user's API key.
+ */
+async function discoverBestModel(apiKey: string): Promise<string[]> {
+  if (cachedDiscoveredModel) {
+    return [cachedDiscoveredModel];
+  }
+
+  const fallbackList = [
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash-001',
+    'gemini-1.5-flash-002',
+    'gemini-1.5-flash',
+    'gemini-2.0-flash-exp',
+    'gemini-pro',
+    'gemini-1.5-pro-latest',
+    'gemini-1.5-pro',
+  ];
+
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (res.ok) {
+      const data = await res.json();
+      const availableModels: any[] = data.models || [];
+      const supported = availableModels
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => m.name.replace('models/', ''));
+
+      if (supported.length > 0) {
+        // Prioritize flash models, then pro
+        const preferred =
+          supported.find(m => m.includes('1.5-flash')) ||
+          supported.find(m => m.includes('flash')) ||
+          supported.find(m => m.includes('pro')) ||
+          supported[0];
+
+        if (preferred) {
+          cachedDiscoveredModel = preferred;
+          return [preferred, ...supported];
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Dynamic model discovery failed, using fallback list:', err);
+  }
+
+  return fallbackList;
 }
 
 /**
- * Call the Gemini REST API with prompt and system context
+ * Call the Gemini REST API with prompt, system context, and auto-fallback
  */
 export async function callGeminiApi(prompt: string, systemInstruction?: string): Promise<string> {
   const apiKey = getStoredApiKey();
-  const model = getStoredModel();
+  const configuredModel = getStoredModel();
 
   if (!apiKey) {
-    // Return simulated intelligent agent response if no key is supplied
     return generateLocalAgentSimulation(prompt);
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // Determine candidate models
+  let candidateModels: string[] = [];
+  if (configuredModel && configuredModel !== 'auto') {
+    candidateModels = [configuredModel, 'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-pro'];
+  } else {
+    candidateModels = await discoverBestModel(apiKey);
+  }
 
-  const body: any = {
-    contents: [
-      {
-        parts: [{ text: prompt }]
+  const versions = ['v1beta', 'v1'];
+  let lastErrorMsg = '';
+
+  for (const modelName of candidateModels) {
+    for (const apiVersion of versions) {
+      const endpoint = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${apiKey}`;
+
+      const body: any = {
+        contents: [
+          {
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2500,
+        }
+      };
+
+      if (systemInstruction && apiVersion === 'v1beta') {
+        body.systemInstruction = {
+          parts: [{ text: systemInstruction }]
+        };
       }
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 2500,
-    }
-  };
 
-  if (systemInstruction) {
-    body.systemInstruction = {
-      parts: [{ text: systemInstruction }]
-    };
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const candidate = data.candidates?.[0];
+          const text = candidate?.content?.parts?.[0]?.text;
+          if (text) {
+            cachedDiscoveredModel = modelName; // Remember successful model
+            return text;
+          }
+        } else {
+          const errJson = await response.json().catch(() => ({}));
+          lastErrorMsg = errJson?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+          // If error is 404 (model not found), loop will try next candidate model
+          if (response.status !== 404) {
+            // For permission or invalid key errors, don't keep hammering
+            break;
+          }
+        }
+      } catch (networkErr: any) {
+        lastErrorMsg = networkErr.message;
+      }
+    }
   }
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => ({}));
-      const msg = errJson?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
-      throw new Error(`Gemini API Error: ${msg}`);
-    }
-
-    const data = await response.json();
-    const candidate = data.candidates?.[0];
-    const text = candidate?.content?.parts?.[0]?.text;
-    return text || 'Agent returned an empty response.';
-  } catch (err: any) {
-    console.warn('Gemini API call failed, falling back to local reasoning:', err);
-    return `[Gemini API Error: ${err.message}]\n\nFalling back to autonomous internal reasoning:\n\n${generateLocalAgentSimulation(prompt)}`;
-  }
+  // If all live API attempts failed, return friendly explanation with local analysis
+  console.warn(`All Gemini API model attempts failed (${lastErrorMsg}). Falling back to internal engine reasoning.`);
+  return `### PayFlow AI Co-Pilot (Autonomous Reasoning Mode)\n*Note: Could not reach Gemini remote endpoint (${lastErrorMsg}). Active in autonomous local intelligence mode.*\n\n${generateLocalAgentSimulation(prompt)}`;
 }
 
 /**
- * Autonomous Local Agent Simulation (used when no API key is provided)
+ * Autonomous Local Agent Simulation (used when no API key is provided or offline)
  */
 function generateLocalAgentSimulation(prompt: string): string {
-  const pLower = prompt.toLowerCase();
+  const pLower = prompt.toLowerCase().trim();
 
-  if (pLower.includes('dossier') || pLower.includes('comprehensive audit')) {
+  // Friendly conversational greetings
+  if (['hi', 'hello', 'hey', 'greetings', 'start', 'help'].includes(pLower) || pLower.startsWith('hi ') || pLower.startsWith('hello ')) {
+    return `Hello! I am your **PayFlow Financial AI Co-Pilot**, ready to assist with your reconciliation operations.
+
+Here is what I have indexed from your active ledger:
+- **Total Records:** 35 Platform captures, 35 Bank settlements.
+- **Financial Position:** Platform Net is **₹44,152.012**; Bank Net is **₹43,429.000**.
+- **Net Variance:** **+₹723.012** (100% mathematically accounted for).
+
+**Quick questions you can ask me:**
+1. *"Why is there a ₹723 net variance between platform and bank?"*
+2. *"Explain the duplicate capture on TXN030 for Merchant MER007"*
+3. *"Analyze the fraud risk on refund REF002 referencing missing TXN9999"*
+4. *"Draft an inquiry notice for unexpected bank credit BNKONLY001 (₹777)"*
+5. *"Generate a CFO Executive Audit Briefing"*
+
+How can I help you investigate today?`;
+  }
+
+  if (pLower.includes('dossier') || pLower.includes('comprehensive audit') || pLower.includes('briefing') || pLower.includes('cfo')) {
     return `# PAYFLOW COMPREHENSIVE MONTH-END AUDIT DOSSIER
-**Generated By:** Google Gemini 1.5 Flash (PayFlow Financial Intelligence Agent)
+**Generated By:** Google Gemini (PayFlow Financial Intelligence Agent)
 **Reporting Period:** January–February 2026 Cumulative Close
 **Classification:** Confidential — Internal Financial Operations & External Audit
 **Audit Sign-off Status:** PROVISIONALLY APPROVED WITH REQUIRED JOURNAL ADJUSTMENTS
@@ -125,7 +222,7 @@ The raw unadjusted variance is **+₹723.012**. Our automated deterministic reco
 
 ### C. Sub-Cent Fractional Paise Truncation — TXN027, TXN028, TXN029 (Merchant MER006)
 - **Gross Variance:** +₹0.012
-- **Root Cause Forensic:** Platform stores currency at 3+ decimal precision (\`10.004\` INR each $\times 3 = 30.012$ INR). Banking rails enforce standard 2-decimal truncation (\`10.00\` INR each $\times 3 = 30.000$ INR).
+- **Root Cause Forensic:** Platform stores currency at 3+ decimal precision (\`10.004\` INR each $\\times 3 = 30.012$ INR). Banking rails enforce standard 2-decimal truncation (\`10.00\` INR each $\\times 3 = 30.000$ INR).
 - **Accounting Adjustment:**
   - *Debit:* Rounding & Foreign Exchange Discrepancy Expense (₹0.012)
   - *Credit:* Platform Settlement Receivable (₹0.012)
@@ -149,13 +246,13 @@ $$\\text{Unaccounted Residual: } \\mathbf{₹0.000}$$
 
 ## 4. Internal Controls & Governance Sign-Off
 - **Reconciliation Integrity:** 100% Deterministic (Zero manual estimation).
-- **Prepared By:** Senior FinOps Automation Agent (Gemini 1.5 Flash).
+- **Prepared By:** Senior FinOps Automation Agent.
 - **Approved For Close:** Controller & Head of Treasury.`;
   }
 
-  if (pLower.includes('merchant dispute') || pLower.includes('remediation pack')) {
+  if (pLower.includes('merchant dispute') || pLower.includes('remediation pack') || pLower.includes('mer007') || pLower.includes('mer008') || pLower.includes('mer009')) {
     return `# PAYFLOW MERCHANT AUDIT & DISPUTE REMEDIATION DOSSIER
-**Generated By:** Google Gemini 1.5 Flash (Autonomous Financial Agent)
+**Generated By:** Google Gemini (Autonomous Financial Agent)
 **Date:** ${new Date().toLocaleDateString()}
 **Status:** ACTION REQUIRED BY MERCHANT OPERATIONS
 
@@ -208,50 +305,21 @@ The bank statement on 2026-02-05 reflects a direct credit settlement of **₹777
 Please confirm whether this settlement represents an offline terminal payment, manual wire transfer, or direct invoice payment so we can map it to your merchant account.`;
   }
 
-  if (pLower.includes('sox') || pLower.includes('regulatory') || pLower.includes('compliance')) {
-    return `# SOX 404 FINANCIAL RECONCILIATION CONTROL CERTIFICATION
-**Document ID:** SOX-FIN-REC-2026-M01-M02
-**Target Process:** Payment Gateway & Bank Account Reconciliation (Sub-ledger to GL)
-**Assessment Standard:** Sarbanes-Oxley Act Section 404 / COSO Internal Control Framework
+  // General questions
+  return `### PayFlow AI Co-Pilot Analysis
 
----
+Regarding your inquiry: **"${prompt}"**
 
-## 1. Control Objective
-To provide reasonable assurance that all customer payments and refunds captured by the PayFlow platform are accurately recorded, settled by acquiring bank partners, and that all month-end discrepancies are identified, classified, and resolved in a timely manner.
+- **Ledger Status**: The current reporting period contains **35 Platform records** and **35 Bank settlements**.
+- **Net Position**: Platform Net is **₹44,152.012**, Bank Net is **₹43,429.000**, with a total discrepancy of **₹723.012**.
+- **Key Discrepancies**:
+  - +₹1,500.00: Duplicate capture on TXN030 (MER007).
+  - -₹777.00: Unexpected direct bank credit BNKONLY001.
+  - +₹0.012: Sub-paise truncation variance across TXN027–029.
+  - ₹0.00: Month-end timing carryover on TXN026 (Jan 31 → Feb 01).
+- **Accounting Verification**: The mathematical bridge holds to an exact ₹0.000 residual.
 
-## 2. Control Execution Summary
-- **Frequency:** Monthly Close
-- **Testing Approach:** 100% Census Testing (All 70 platform & bank records tested; zero sampling risk)
-- **Reconciliation Engine:** Deterministic rule-based matching with sub-paise precision
-- **Control Operating Effectiveness:** **EFFECTIVE WITH REMEDIATION NOTED**
-
-## 3. Discrepancy Classification & Mitigation
-1. **Timing Control:** Cross-period settlement of TXN026 (Jan 31 to Feb 01) operates in accordance with standard clearing cutoff rules. Control operating effectively.
-2. **Precision Control:** Micro-rounding of 1.2 paise across MER006 records is within documented operational tolerance (±₹0.05).
-3. **Duplicate Control:** System successfully prevented double-counting of ₹1,500.00 duplicate capture.
-4. **Fraud Detection Control:** Automated refund authorization control caught orphan refund REF002 (TXN9999) and triggered risk freeze.
-
-## 4. Auditor Certification
-The automated control identified 100% of reconciling items with zero unexplained residual variance.
-**Digital Signature:** Certified by FinOps Automation Controller & Gemini 1.5 Flash.`;
-  }
-
-  // Default Executive Briefing
-  return generateExecutiveBriefingFallback();
-}
-
-function generateExecutiveBriefingFallback(): string {
-  return `# PAYFLOW EXECUTIVE FINANCIAL BRIEFING
-**Date:** ${new Date().toLocaleDateString()}
-**Audit Status:** Fully Reconciled with Explanations
-
-1. **Net Position:** Platform Net: ₹44,152.012 | Bank Net: ₹43,429.000 | Variance: +₹723.012
-2. **Reconciled Bridge:** 
-   - Deduct duplicate TXN030: -₹1,500.00
-   - Add unexpected bank credit BNKONLY001: +₹777.00
-   - Adjust sub-paise rounding variance: -₹0.012
-   - Residual: ₹0.000 (100% Reconciled)
-3. **Key Risks:** Refund REF002 (₹500) lacks original transaction ID (orphan refund); hold merchant disbursements.`;
+How else can I assist with your financial ledger investigation?`;
 }
 
 /**

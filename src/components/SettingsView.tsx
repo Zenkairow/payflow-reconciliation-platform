@@ -244,8 +244,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onChange={e => setModel(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Recommended)</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+              <option value="auto">Auto-Detect Best Model (Recommended)</option>
+              <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash Latest</option>
+              <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+              <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
+              <option value="gemini-pro">Gemini 1.0 Pro</option>
               <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
             </select>
           </div>
