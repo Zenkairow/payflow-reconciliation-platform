@@ -22,6 +22,7 @@ import {
   setStoredModel,
   chatWithAgent,
   generateExecutiveBriefing,
+  testApiKeyConnection,
 } from '../services/geminiAgent';
 
 interface AgenticCoPilotModalProps {
@@ -47,6 +48,7 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
   const [apiKeyInput, setApiKeyInput] = useState(getStoredApiKey());
   const [selectedModel, setSelectedModel] = useState(getStoredModel());
   const [keySaved, setKeySaved] = useState(false);
+  const [testResult, setTestResult] = useState<{ testing: boolean; message?: string; isError?: boolean } | null>(null);
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([
@@ -119,6 +121,31 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
     setStoredModel(selectedModel);
     setKeySaved(true);
     setTimeout(() => setKeySaved(false), 2500);
+  };
+
+  const handleTestApiKey = async () => {
+    if (!apiKeyInput.trim()) {
+      setTestResult({ testing: false, message: 'Please enter an API key to test.', isError: true });
+      return;
+    }
+    setTestResult({ testing: true, message: 'Contacting Google Generative Language service...' });
+    const res = await testApiKeyConnection(apiKeyInput.trim());
+    if (res.success) {
+      setTestResult({
+        testing: false,
+        message: `Connected successfully! Detected ${res.models.length} supported models: ${res.models.slice(0, 3).join(', ')}.`,
+        isError: false,
+      });
+      // Save valid key
+      setStoredApiKey(apiKeyInput);
+      setStoredModel(selectedModel);
+    } else {
+      setTestResult({
+        testing: false,
+        message: `Endpoint note: ${res.error}. (Autonomous offline reasoning will activate seamlessly.)`,
+        isError: true,
+      });
+    }
   };
 
   const quickPrompts = [
@@ -377,11 +404,11 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
                 >
                   <option value="auto">Auto-Detect Best Available Model (Recommended)</option>
-                  <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash Latest</option>
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                  <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
+                  <option value="gemini-1.5-flash-002">Gemini 1.5 Flash 002</option>
+                  <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro</option>
                   <option value="gemini-pro">Gemini 1.0 Pro</option>
-                  <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                 </select>
               </div>
 
@@ -392,12 +419,32 @@ export const AgenticCoPilotModal: React.FC<AgenticCoPilotModalProps> = ({
                 >
                   Save Configuration
                 </button>
+                <button
+                  onClick={handleTestApiKey}
+                  disabled={testResult?.testing}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  <span>{testResult?.testing ? 'Testing...' : 'Test Connection'}</span>
+                </button>
                 {keySaved && (
                   <span className="text-xs text-emerald-400 flex items-center gap-1 font-semibold">
                     <Check className="w-4 h-4" /> Settings Saved!
                   </span>
                 )}
               </div>
+
+              {testResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                    testResult.isError
+                      ? 'bg-amber-950/30 border-amber-800/60 text-amber-300'
+                      : 'bg-emerald-950/30 border-emerald-800/60 text-emerald-300'
+                  }`}
+                >
+                  {testResult.message}
+                </div>
+              )}
             </div>
 
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/80 space-y-2 text-xs text-slate-400">
