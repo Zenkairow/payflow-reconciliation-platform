@@ -12,7 +12,7 @@ const MODEL_KEY = 'payflow_gemini_model';
 export const DEFAULT_MODEL = 'gemini-1.5-flash';
 
 export function getStoredApiKey(): string {
-  return localStorage.getItem(STORAGE_KEY) || '';
+  return localStorage.getItem(STORAGE_KEY) || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
 }
 
 export function setStoredApiKey(key: string): void {

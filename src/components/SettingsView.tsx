@@ -9,9 +9,18 @@ import {
   Building2,
   HardDrive,
   Info,
+  Key,
+  Check,
+  Sparkles,
 } from 'lucide-react';
 import { parsePlatformCsv, parseBankCsv } from '../utils/csvParser';
 import { PlatformTransaction, BankTransaction } from '../types';
+import {
+  getStoredApiKey,
+  setStoredApiKey,
+  getStoredModel,
+  setStoredModel,
+} from '../services/geminiAgent';
 
 interface SettingsViewProps {
   onLoadCustomPlatformData: (data: PlatformTransaction[]) => void;
@@ -34,6 +43,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [platformUploadMsg, setPlatformUploadMsg] = useState<string | null>(null);
   const [bankUploadMsg, setBankUploadMsg] = useState<string | null>(null);
+
+  // Gemini API Key State
+  const [apiKey, setApiKey] = useState(getStoredApiKey());
+  const [model, setModel] = useState(getStoredModel());
+  const [keySaved, setKeySaved] = useState(false);
+
+  const handleSaveApiKey = () => {
+    setStoredApiKey(apiKey);
+    setStoredModel(model);
+    setKeySaved(true);
+    setTimeout(() => setKeySaved(false), 2500);
+  };
 
   const handlePlatformFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -157,6 +178,76 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {bankUploadMsg}
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Gemini LLM API Configuration Card */}
+      <div className="bg-slate-950 p-6 rounded-2xl border border-purple-900/40 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Google Gemini API Key Configuration</span>
+                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                  Live LLM Integration
+                </span>
+              </h4>
+              <p className="text-xs text-slate-400">
+                Powers AI-generated audit reports, merchant dispute memos, and autonomous exception reasoning
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleSaveApiKey}
+              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md shadow-purple-600/30 transition-all flex items-center gap-1.5"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span>Save Key</span>
+            </button>
+            {keySaved && (
+              <span className="text-xs text-emerald-400 flex items-center gap-1 font-semibold animate-in fade-in">
+                <Check className="w-4 h-4" /> Saved!
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 block">
+              Gemini API Key
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="Paste your key here (e.g. AIzaSy...)"
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-purple-500 font-mono-num"
+            />
+            <span className="text-[10px] text-slate-500 block">
+              Saved securely in your browser's private localStorage. Never transmitted to any third party.
+            </span>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 block">
+              Gemini Model
+            </label>
+            <select
+              value={model}
+              onChange={e => setModel(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
+            >
+              <option value="gemini-1.5-flash">Gemini 1.5 Flash (Recommended)</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+              <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+            </select>
           </div>
         </div>
       </div>
